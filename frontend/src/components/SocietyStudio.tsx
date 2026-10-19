@@ -36,12 +36,12 @@ export const SocietyStudio: React.FC = () => {
   const [societyState, setSocietyState] = useState<SocietyState | null>(null);
   const [selectedCitizenId, setSelectedCitizenId] = useState<string>('');
   const [godActionMsg, setGodActionMsg] = useState('');
-  const [logFilter, setLogFilter] = useState<'all' | 'duel' | 'trade' | 'law' | 'god'>('all');
+  const [logFilter, setLogFilter] = useState<'all' | 'chat' | 'duel' | 'trade' | 'law' | 'god'>('all');
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [activeView, setActiveView] = useState<'chat' | 'map' | 'split'>('chat');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const wsRef = useRef<any>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   // Selected Citizen Memo
@@ -50,7 +50,7 @@ export const SocietyStudio: React.FC = () => {
     return societyState.agents.find((a) => a.id === selectedCitizenId) || societyState.agents[0] || null;
   }, [societyState, selectedCitizenId]);
 
-  // Connect WebSocket & fetch initial state
+  // Connect WebSocket with auto-reconnect & fallback heartbeat polling
   useEffect(() => {
     api.getSocietyState()
       .then((state) => {
@@ -66,8 +66,18 @@ export const SocietyStudio: React.FC = () => {
     });
     wsRef.current = ws;
 
+    // Safety fallback polling heartbeat (every 2.5s) to ensure uninterrupted updates
+    const pollInterval = setInterval(() => {
+      api.getSocietyState()
+        .then((state) => {
+          setSocietyState(state);
+        })
+        .catch(() => {});
+    }, 2500);
+
     return () => {
       ws.close();
+      clearInterval(pollInterval);
     };
   }, []);
 
@@ -471,7 +481,7 @@ export const SocietyStudio: React.FC = () => {
 
         {/* Filter Tabs */}
         <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-secondary)', padding: '3px', borderRadius: '8px' }}>
-          {(['all', 'duel', 'trade', 'law', 'god'] as const).map((cat) => (
+          {(['all', 'chat', 'duel', 'trade', 'law', 'god'] as const).map((cat) => (
             <button
               key={cat}
               onClick={() => setLogFilter(cat)}
@@ -487,7 +497,7 @@ export const SocietyStudio: React.FC = () => {
                 textTransform: 'capitalize',
               }}
             >
-              {cat === 'all' ? 'All' : cat}
+              {cat === 'all' ? 'All' : cat === 'chat' ? '💬 Chat' : cat}
             </button>
           ))}
         </div>
@@ -802,6 +812,7 @@ export const SocietyStudio: React.FC = () => {
           selectedCitizenId={selectedCitizen?.id || ''}
           onSelectCitizen={setSelectedCitizenId}
           onGodAction={handleGodAction}
+          onUpdateState={setSocietyState}
           isCompact={false}
         />
       )}
@@ -819,6 +830,7 @@ export const SocietyStudio: React.FC = () => {
               selectedCitizenId={selectedCitizen?.id || ''}
               onSelectCitizen={setSelectedCitizenId}
               onGodAction={handleGodAction}
+              onUpdateState={setSocietyState}
               isCompact={true}
             />
           </div>

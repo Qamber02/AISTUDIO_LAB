@@ -22,6 +22,7 @@ interface AgoraChatroomProps {
   selectedCitizenId: string;
   onSelectCitizen: (id: string) => void;
   onGodAction?: (action: string, payload?: Record<string, any>) => void;
+  onUpdateState?: (state: SocietyState) => void;
   isCompact?: boolean;
 }
 
@@ -39,6 +40,7 @@ export const AgoraChatroom: React.FC<AgoraChatroomProps> = ({
   selectedCitizenId,
   onSelectCitizen,
   onGodAction,
+  onUpdateState,
   isCompact = false
 }) => {
   const [chatInput, setChatInput] = useState('');
@@ -89,7 +91,10 @@ export const AgoraChatroom: React.FC<AgoraChatroomProps> = ({
 
     setIsSending(true);
     try {
-      await api.sendSocietyChatMessage(textToSend);
+      const res = await api.sendSocietyChatMessage(textToSend);
+      if (res && res.state && onUpdateState) {
+        onUpdateState(res.state);
+      }
       setChatInput('');
       setJustSent(true);
       setTimeout(() => setJustSent(false), 2000);
@@ -433,16 +438,16 @@ export const AgoraChatroom: React.FC<AgoraChatroomProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     {/* Avatar Icon */}
-                    <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>{msg.sender_avatar}</span>
+                    <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>{msg.sender_avatar || (isCreator ? '👑' : '🤖')}</span>
 
                     {/* Sender Name */}
                     <span style={{
                       fontWeight: 800,
                       fontSize: '0.88rem',
-                      color: isCreator ? '#fbbf24' : msg.sender_color,
+                      color: isCreator ? '#fbbf24' : (msg.sender_color || 'var(--accent-cyan)'),
                       letterSpacing: '-0.01em',
                     }}>
-                      {msg.sender_name}
+                      {msg.sender_name || (isCreator ? 'Architect (You)' : 'Citizen')}
                     </span>
 
                     {/* Algorithm Badge */}
@@ -456,7 +461,7 @@ export const AgoraChatroom: React.FC<AgoraChatroomProps> = ({
                       textTransform: 'uppercase',
                       letterSpacing: '0.04em',
                     }}>
-                      {isCreator ? 'Creator Intelligence' : msg.sender_algorithm.replace(/_/g, ' ')}
+                      {isCreator ? 'Creator Intelligence' : (msg.sender_algorithm || 'model_citizen').replace(/_/g, ' ')}
                     </span>
 
                     {/* Target / Recipient Pill */}

@@ -55,6 +55,7 @@ Transforms trained machine learning models into 10 autonomous citizen agents in 
 - Democratic Council Chamber: Citizens introduce civic bills and vote sequentially across a 30-second window. Each bot casts its AYE or NAY vote with an explainable rationale based on its underlying algorithm and ideology.
 - Community Treasury & Laws: Enacts community edicts (Peace Treaty, Universal Energy Dividend, Arms Regulation) with real economic and combat fines.
 - Online Reinforcement Learning: Citizen policy weights adapt organically via policy gradient updates after every trade, combat, and legislative outcome.
+- Citizen Agora Chatroom: Real-time autonomous multi-agent dialogue chamber where all 10 model citizens converse in character according to their algorithm's philosophy and worldview. Includes Architect prompt decrees, speaker filtering, @mentions targeting, and auto-pacing.
 - God Mode Command Deck: Direct interventions to inject crystals, trigger cataclysms (Solar Flare Storm, Financial Crash, Void Titan Incursion), call emergency general elections, and bestow legendary armaments.
 
 ---

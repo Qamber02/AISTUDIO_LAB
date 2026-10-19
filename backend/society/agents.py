@@ -322,9 +322,9 @@ class CitizenAgent:
                 self.influence += 5
                 self.health = min(100, self.health + 20)
 
-    def speak(self, text: Optional[str] = None):
+    def speak(self, text: Optional[str] = None, duration: int = 5):
         self.speech_bubble = text or random.choice(self.quotes)
-        self.speech_timer = 4
+        self.speech_timer = duration
 
     def to_dict(self) -> Dict[str, Any]:
         return {

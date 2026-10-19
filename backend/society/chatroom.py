@@ -235,7 +235,7 @@ class ChatroomManager:
         self.messages: List[Dict[str, Any]] = []
         self.active_topic: Dict[str, Any] = TOPICS[0]
         self.topic_timer: int = 120  # Changes every 2 minutes
-        self.turn_cooldown: int = 4  # New message every 4-8 seconds
+        self.turn_cooldown: int = 1  # First message triggers immediately
         self.last_speaker_id: Optional[str] = None
         self.pending_replier_id: Optional[str] = None
         self.pending_reply_target: Optional[str] = None
@@ -296,8 +296,8 @@ class ChatroomManager:
         if self.turn_cooldown > 0:
             return None
 
-        # Reset turn countdown (pacing: 5-8 seconds between messages)
-        self.turn_cooldown = random.randint(5, 8)
+        # Reset turn countdown (pacing: 3-5 seconds between messages for an active discussion)
+        self.turn_cooldown = random.randint(3, 5)
 
         # Select speaker
         speaker = None
@@ -351,7 +351,7 @@ class ChatroomManager:
         }
 
         # Show speech bubble on avatar on map too!
-        speaker.speak(text[:70] + ("..." if len(text) > 70 else ""))
+        speaker.speak(text[:70] + ("..." if len(text) > 70 else ""), duration=6)
 
         self.messages.append(msg)
         if len(self.messages) > 120:
@@ -376,8 +376,22 @@ class ChatroomManager:
         }
         self.messages.append(user_msg)
 
-        # 1 or 2 agents formulate an in-character response to the creator!
-        responders = random.sample(agents, min(2, len(agents)))
+        # Check if user @mentioned any specific agents (e.g. @Thorne, @Aria, @Kaelen, @Sylvia)
+        user_lower = user_text.lower()
+        mentioned = []
+        for a in agents:
+            first_name = a.name.split(" ")[0].lower()
+            if f"@{first_name}" in user_lower or first_name in user_lower:
+                mentioned.append(a)
+
+        if mentioned:
+            responders = mentioned[:2]
+            remaining = [a for a in agents if a not in responders]
+            if len(responders) < 2 and remaining:
+                responders.append(random.choice(remaining))
+        else:
+            responders = random.sample(agents, min(2, len(agents)))
+
         new_msgs = [user_msg]
 
         for resp in responders:
@@ -398,7 +412,7 @@ class ChatroomManager:
                 "timestamp": time.strftime("%H:%M:%S"),
                 "topic": self.active_topic["title"]
             }
-            resp.speak(f"Architect: {reply_text[:60]}")
+            resp.speak(f"Architect: {reply_text[:60]}", duration=6)
             self.messages.append(agent_msg)
             new_msgs.append(agent_msg)
 

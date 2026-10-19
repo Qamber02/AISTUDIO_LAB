@@ -88,11 +88,17 @@ class SocietySimulationEngine:
         msg = json.dumps(state)
 
         async def send_all():
+            dead_clients = []
             for ws in clients:
                 try:
                     await ws.send_text(msg)
                 except Exception:
-                    pass
+                    dead_clients.append(ws)
+            if dead_clients:
+                with self.lock:
+                    for d in dead_clients:
+                        if d in self.subscribers:
+                            self.subscribers.remove(d)
 
         if loop and loop.is_running():
             try:
@@ -294,7 +300,13 @@ class SocietySimulationEngine:
                     agent.speak("Deep in contemplation... (30s cooldown)")
 
         # 3. Agora Autonomous Citizen Dialogue (Paced multi-agent chat)
-        self.chatroom.step_chat(self.agents, self.governance)
+        chat_msg = self.chatroom.step_chat(self.agents, self.governance)
+        if chat_msg:
+            if chat_msg.get("sender_id") == "system":
+                self._add_log(f"📢 {chat_msg['text']}", category="chat")
+            else:
+                tgt = f" → @{chat_msg['target_name'].split(' ')[0]}" if chat_msg.get('target_name') else ""
+                self._add_log(f"💬 {chat_msg['sender_name'].split(' ')[0]}{tgt}: \"{chat_msg['text']}\"", category="chat")
 
         # Broadcast state over WebSocket
         full_state = self.get_full_state()

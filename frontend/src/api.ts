@@ -325,18 +325,54 @@ export const api = {
     onState: (state: SocietyState) => void,
     onOpen?: () => void,
     onClose?: () => void
-  ): WebSocket {
-    const ws = new WebSocket(`${WS_BASE}/api/society/ws`);
-    ws.onopen = () => onOpen?.();
-    ws.onmessage = (event) => {
+  ): { close: () => void } {
+    let isClosed = false;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: any = null;
+
+    const connect = () => {
+      if (isClosed) return;
       try {
-        const state = JSON.parse(event.data);
-        onState(state);
-      } catch (e) {
-        console.error('Failed to parse Society WS message', e);
+        ws = new WebSocket(`${WS_BASE}/api/society/ws`);
+        ws.onopen = () => {
+          onOpen?.();
+        };
+        ws.onmessage = (event) => {
+          try {
+            const state = JSON.parse(event.data);
+            onState(state);
+          } catch (e) {
+            console.error('Failed to parse Society WS message', e);
+          }
+        };
+        ws.onerror = () => {
+          // Let onclose handle reconnect
+        };
+        ws.onclose = () => {
+          onClose?.();
+          if (!isClosed) {
+            reconnectTimer = setTimeout(connect, 1500);
+          }
+        };
+      } catch (err) {
+        if (!isClosed) {
+          reconnectTimer = setTimeout(connect, 2000);
+        }
       }
     };
-    ws.onclose = () => onClose?.();
-    return ws;
+
+    connect();
+
+    return {
+      close: () => {
+        isClosed = true;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        if (ws) {
+          try {
+            ws.close();
+          } catch (_) {}
+        }
+      },
+    };
   },
 };
