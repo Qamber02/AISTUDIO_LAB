@@ -54,10 +54,20 @@ def generate_boundary_slice(
             full_X[:, idx] = val
 
     # Run predictions through pipeline or inspectable model
+    query_X = full_X
+    if hasattr(estimator_or_pipeline, "scale_features"):
+        query_X = estimator_or_pipeline.scale_features(full_X)
+    elif hasattr(estimator_or_pipeline, "scaler_params") and estimator_or_pipeline.scaler_params:
+        scaler_p = estimator_or_pipeline.scaler_params
+        if "mean" in scaler_p and "scale" in scaler_p:
+            query_X = (full_X - np.array(scaler_p["mean"])) / (np.array(scaler_p["scale"]) + 1e-12)
+        elif "min" in scaler_p and "scale" in scaler_p:
+            query_X = (full_X - np.array(scaler_p["min"])) / (np.array(scaler_p["scale"]) + 1e-12)
+
     prob_mesh = None
     if hasattr(estimator_or_pipeline, "predict_proba"):
         try:
-            probs = estimator_or_pipeline.predict_proba(full_X)
+            probs = estimator_or_pipeline.predict_proba(query_X)
             if probs.shape[1] == 2:
                 prob_mesh = probs[:, 1].reshape(resolution, resolution).round(3).tolist()
             else:
@@ -65,7 +75,7 @@ def generate_boundary_slice(
         except Exception:
             prob_mesh = None
 
-    preds = estimator_or_pipeline.predict(full_X)
+    preds = estimator_or_pipeline.predict(query_X)
     z_mesh = preds.reshape(resolution, resolution).tolist()
 
     # Sample points for scatter overlay (limit to at most 150 points for fast rendering)
@@ -96,11 +106,16 @@ def generate_boundary_slice(
 
 
 def extract_decision_tree_hierarchy(tree_model: Any, feature_names: List[str], class_names: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Recursively parses a Scikit-Learn DecisionTreeClassifier/Regressor into an SVG-renderable node tree."""
+    """Recursively parses a Scikit-Learn DecisionTreeClassifier/Regressor or Random Forest into an SVG-renderable node tree."""
     tree_ = getattr(tree_model, "tree_", None)
     if tree_ is None and hasattr(tree_model, "named_steps"):
         # Extracted from pipeline
-        tree_ = getattr(tree_model.named_steps.get("estimator"), "tree_", None)
+        estimator = tree_model.named_steps.get("estimator")
+        tree_ = getattr(estimator, "tree_", None)
+        if tree_ is None and hasattr(estimator, "estimators_") and len(estimator.estimators_) > 0:
+            tree_ = getattr(estimator.estimators_[0], "tree_", None)
+    elif tree_ is None and hasattr(tree_model, "estimators_") and len(tree_model.estimators_) > 0:
+        tree_ = getattr(tree_model.estimators_[0], "tree_", None)
 
     if tree_ is None:
         return {}

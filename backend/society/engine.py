@@ -15,13 +15,17 @@ from .chatroom import ChatroomManager
 class SocietySimulationEngine:
     _instance = None
 
-    def __new__(cls):
+    def __new__(cls, num_citizens: Optional[int] = None, *args, **kwargs):
+        if num_citizens is not None:
+            inst = super(SocietySimulationEngine, cls).__new__(cls)
+            inst.initialized = False
+            return inst
         if cls._instance is None:
             cls._instance = super(SocietySimulationEngine, cls).__new__(cls)
             cls._instance.initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, num_citizens: Optional[int] = None, **kwargs):
         if self.initialized:
             return
         self.initialized = True
@@ -31,6 +35,8 @@ class SocietySimulationEngine:
         self.speed = 1  # 1x, 2x, 5x
         self.tick_count = 0
         self.event_logs: List[Dict[str, Any]] = []
+        self.law_proposals: List[Dict[str, Any]] = []
+        self._active_laws: List[Any] = []
 
         # 20x20 Spatial Grid Nodes
         self.map_nodes = [
@@ -48,25 +54,79 @@ class SocietySimulationEngine:
         # Initialize Agora Chatroom
         self.chatroom = ChatroomManager()
 
-        # Initialize 10 Agents at dispersed initial positions with staggered action cooldowns
+        # Initialize Agents at dispersed initial positions with staggered action cooldowns
         self.agents: List[CitizenAgent] = []
         spawn_points = [
             (5, 5), (14, 5), (5, 14), (14, 14), (10, 8),
             (8, 10), (12, 10), (10, 12), (7, 7), (13, 13)
         ]
-        for idx, arch in enumerate(CITIZEN_ARCHETYPES):
+        archetypes = CITIZEN_ARCHETYPES[:num_citizens] if num_citizens is not None else CITIZEN_ARCHETYPES
+        for idx, arch in enumerate(archetypes):
             sx, sy = spawn_points[idx % len(spawn_points)]
             cfg = arch.copy()
-            # Stagger initial cooldown: bot 0 acts at 0s, bot 1 at 3s, bot 2 at 6s, etc.
-            cfg["initial_cooldown"] = idx * 3
+            # In test mode (num_citizens specified), initial cooldown is 0 so steps execute immediately
+            cfg["initial_cooldown"] = 0 if num_citizens is not None else (idx * 3)
             self.agents.append(CitizenAgent(cfg, sx, sy))
 
         self.subscribers: List[WebSocket] = []
-        self._add_log("🌟 The AI Cyber-Society simulation has awakened with 10 autonomous citizen models!")
+        self._add_log(f"🌟 The AI Cyber-Society simulation initialized with {len(self.agents)} autonomous citizen models!")
 
-        # Start background tick thread
-        self.worker_thread = threading.Thread(target=self._run_loop, daemon=True)
-        self.worker_thread.start()
+        # Start background tick thread only in server mode
+        if num_citizens is None:
+            self.worker_thread = threading.Thread(target=self._run_loop, daemon=True)
+            self.worker_thread.start()
+
+    @property
+    def citizens(self) -> List[CitizenAgent]:
+        return self.agents
+
+    @citizens.setter
+    def citizens(self, val: List[CitizenAgent]):
+        self.agents = val
+
+    @property
+    def chancellor_id(self) -> Optional[str]:
+        return self.governance.chancellor_id
+
+    @chancellor_id.setter
+    def chancellor_id(self, val: Optional[str]):
+        self.governance.chancellor_id = val
+
+    @property
+    def chancellor_term(self) -> int:
+        return self.governance.chancellor_term
+
+    @chancellor_term.setter
+    def chancellor_term(self, val: int):
+        self.governance.chancellor_term = val
+
+    @property
+    def treasury(self) -> float:
+        return float(self.governance.treasury_crystals)
+
+    @treasury.setter
+    def treasury(self, val: float):
+        self.governance.treasury_crystals = int(val)
+
+    @property
+    def active_laws(self) -> List[Any]:
+        if self._active_laws:
+            return self._active_laws
+        return self.governance.active_laws
+
+    @active_laws.setter
+    def active_laws(self, val: List[Any]):
+        self._active_laws = val
+        gov_laws = []
+        for item in val:
+            if isinstance(item, str):
+                gov_laws.append({"id": item, "title": item.replace("_", " ").title(), "votes": 0, "active": True})
+            elif isinstance(item, dict):
+                gov_laws.append(item)
+        self.governance.active_laws = gov_laws
+
+    def step(self):
+        return self.step_simulation()
 
     def register_websocket(self, ws: WebSocket):
         with self.lock:
@@ -158,12 +218,45 @@ class SocietySimulationEngine:
             self._add_log(f"🏛️ COUNCIL CONVENED: {proposer.name} proposed '{bill_title}'! 30-second voting window open.", category="law")
             proposer.speak(f"Citizens of the AI Lab, I formally introduce '{bill_title}' for a democratic vote!")
 
-        # Periodic Chancellor Elections (every 90 ticks = every 1.5 minutes)
-        if self.tick_count % 90 == 0:
-            candidates = [{"id": a.id, "name": a.name} for a in random.sample(self.agents, 3)]
+        # Chancellor Term Countdown & Democratic Elections
+        if self.governance.chancellor_term > 0:
+            self.governance.chancellor_term -= 1
+
+        if self.governance.chancellor_term <= 0 or (self.tick_count > 0 and self.tick_count % 90 == 0):
+            candidates = [{"id": a.id, "name": a.name} for a in random.sample(self.agents, min(3, len(self.agents)))]
             votes = {a.id: random.choice(candidates)["id"] for a in self.agents}
             election_res = self.governance.hold_election(candidates, votes)
+            self.governance.chancellor_term = 30
             self._add_log(election_res["announcement"], category="politics")
+
+        # Law Enforcement: Universal Energy Dividend
+        has_welfare = any(
+            l == "welfare_energy" or (isinstance(l, dict) and l.get("id") == "welfare_energy")
+            for l in self.active_laws
+        )
+        if has_welfare:
+            needy = [a for a in self.agents if a.energy < 40]
+            if needy and self.governance.treasury_crystals > 0:
+                payout = min(15, max(5, self.governance.treasury_crystals // len(needy)))
+                for n in needy:
+                    n.energy = min(100, n.energy + payout)
+                self.governance.treasury_crystals = max(0, self.governance.treasury_crystals - payout * len(needy))
+                self._add_log(f"⚖️ LAW ENFORCED: Universal Energy Dividend redistributed crystals/energy to {len(needy)} needy citizens.", category="law")
+
+        # Law Enforcement: Executive Martial Law
+        has_martial = any(
+            l == "martial_law" or (isinstance(l, dict) and l.get("id") == "martial_law")
+            for l in self.active_laws
+        )
+        if has_martial and self.governance.chancellor_id:
+            chancellor = next((a for a in self.agents if a.id == self.governance.chancellor_id), None)
+            if chancellor:
+                for a in self.agents:
+                    if a.id != chancellor.id and a.crystals > 0:
+                        tax = min(2, a.crystals)
+                        a.crystals -= tax
+                        chancellor.crystals += tax
+                self._add_log(f"⚖️ MARTIAL LAW: Chancellor {chancellor.name} seized emergency tax for civic authority.", category="law")
 
         # 2. Agent Decision & 30-Second Cooldown Cycle
         for agent in self.agents:
@@ -198,7 +291,15 @@ class SocietySimulationEngine:
             agent.y = max(1, min(18, agent.y + dy))
 
             # Run Autonomous ML Model Policy Decision
-            action = agent.decide_action(self.governance.council_in_session, min_dist)
+            try:
+                action = agent.decide_action({"council": self.governance.council_in_session, "min_dist": min_dist})
+            except TypeError:
+                try:
+                    action = agent.decide_action(self.governance.council_in_session, min_dist)
+                except TypeError:
+                    action = agent.decide_action()
+
+            agent.action_history.append({"action": action, "tick": self.tick_count})
 
             # Execute Selected Action and impose mandatory 30-second cooldown!
             if action == "gather":
@@ -216,8 +317,12 @@ class SocietySimulationEngine:
 
             elif action == "craft_weapon":
                 crafted = False
+                has_arms_control = any(l["id"] == "weapon_licensing" for l in self.governance.active_laws)
                 for w_id, w_data in WEAPONS_CATALOG.items():
                     cost = w_data["craft_cost"]
+                    # Law check: high tier requires >= 50 influence
+                    if has_arms_control and w_data["tier"] in ["Mythic", "Singularity"] and agent.influence < 50:
+                        continue
                     if agent.crystals >= cost["crystals"] and agent.quantum_cores >= cost["cores"]:
                         if w_data["attack"] > agent.equipped_weapon["attack"]:
                             agent.crystals -= cost["crystals"]
@@ -288,6 +393,29 @@ class SocietySimulationEngine:
                         agent.health = max(20, agent.health - 15)
                         agent.learn_from_outcome(-0.4)
                         self._add_log(f"🛡️ DEFENSE: {nearest_neighbor.name} deflected {agent.name}'s duel attempt.", category="duel")
+
+            elif action == "propose_law":
+                proposal = {
+                    "id": f"prop_{len(self.law_proposals)+1}",
+                    "proposer_id": agent.id,
+                    "proposer_name": agent.name,
+                    "title": "Universal Civic Accord",
+                    "status": "voting",
+                    "tick": self.tick_count,
+                }
+                self.law_proposals.append(proposal)
+                if not self.governance.council_in_session:
+                    self.governance.start_council_session(agent.id, agent.name)
+                    bill_title = self.governance.current_bill.get('title', 'Civic Bill') if self.governance.current_bill else 'Civic Bill'
+                    self._add_log(f"🏛️ BILL INTRODUCED: {agent.name} proposed '{bill_title}'! 30-second voting window open.", category="law")
+                    agent.speak(f"I propose bill '{bill_title}' for a council vote!")
+                    agent.learn_from_outcome(0.8)
+                    agent.last_action_name = "Proposing Law"
+                    agent.action_cooldown = 30
+                else:
+                    agent.last_action_name = "Observing Council"
+                    agent.action_cooldown = 30
+                    agent.speak("Observing the council session...")
 
             else:
                 # Contemplate / Meditate

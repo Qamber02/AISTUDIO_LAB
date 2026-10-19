@@ -46,10 +46,24 @@ def prepare_data_splits(
         X_df = df[feature_cols].copy()
         y_raw = None
 
-    # Handle any non-numeric columns in features with simple dummy encoding or float conversion
+    # Handle non-numeric/categorical columns in features
+    category_mappings: Dict[str, List[str]] = {}
     for col in X_df.columns:
         if not pd.api.types.is_numeric_dtype(X_df[col]):
-            X_df[col] = pd.to_numeric(X_df[col], errors="coerce").fillna(0)
+            num_converted = pd.to_numeric(X_df[col], errors="coerce")
+            # If at least half the non-null values are numeric, treat as numeric
+            if num_converted.notna().sum() >= max(1, int(0.5 * len(X_df))):
+                fill_val = num_converted.median() if num_converted.notna().any() else 0.0
+                X_df[col] = num_converted.fillna(fill_val).astype(float)
+            else:
+                # String/categorical column: encode distinct categories to distinct float codes
+                cat_series = pd.Categorical(X_df[col].astype(str))
+                X_df[col] = cat_series.codes.astype(float)
+                category_mappings[col] = [str(cat) for cat in cat_series.categories]
+        else:
+            # Handle numeric NaNs with column median
+            if X_df[col].isnull().any():
+                X_df[col] = X_df[col].fillna(X_df[col].median() if len(X_df[col].dropna()) > 0 else 0.0)
 
     # Encode target if classification
     label_encoder = None
@@ -59,7 +73,7 @@ def prepare_data_splits(
     if y_raw is not None:
         if task_type == "classification":
             label_encoder = LabelEncoder()
-            y_encoded = label_encoder.fit_transform(y_raw)
+            y_encoded = label_encoder.fit_transform(y_raw.astype(str))
             target_classes = [str(c) for c in label_encoder.classes_]
         else:
             y_encoded = pd.to_numeric(y_raw, errors="coerce").fillna(0).values
@@ -143,6 +157,7 @@ def prepare_data_splits(
         "scaler_params": scaler_params,
         "label_encoder": label_encoder,
         "target_classes": target_classes,
+        "category_mappings": category_mappings,
         "X_train_raw": X_train.values,
         "X_val_raw": X_val.values,
         "X_test_raw": X_test.values,

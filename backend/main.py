@@ -13,12 +13,23 @@ from .routers.visualization_router import router as visualization_router
 from .routers.inference_router import router as inference_router
 from .routers.experiments_router import router as experiments_router
 from .routers.society_router import router as society_router
+from .ml.training_manager import TrainingManager
+from .society.engine import SocietySimulationEngine
+import asyncio
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Ensure database is initialized
     init_db()
+
+    # Pass the main running asyncio loop to managers for thread-safe WebSocket broadcasts
+    try:
+        main_loop = asyncio.get_running_loop()
+        TrainingManager().loop = main_loop
+        SocietySimulationEngine().loop = main_loop
+    except RuntimeError:
+        pass
 
     # Seed default starter datasets if empty
     conn = get_db_connection()

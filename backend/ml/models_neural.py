@@ -35,6 +35,37 @@ def softmax(z):
     return exp_z / np.sum(exp_z, axis=-1, keepdims=True)
 
 
+def scale_features(
+    X: Any,
+    method: str = "standard",
+    params: Optional[Dict[str, Any]] = None,
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """Scales numeric features using standard (z-score) or min-max normalization."""
+    X_arr = np.asarray(X, dtype=float)
+    if params is None:
+        params = {}
+        if method == "standard":
+            params["mean"] = np.mean(X_arr, axis=0).tolist()
+            std = np.std(X_arr, axis=0)
+            params["scale"] = np.where(std == 0, 1.0, std).tolist()
+        elif method == "minmax":
+            params["min"] = np.min(X_arr, axis=0).tolist()
+            rng = np.max(X_arr, axis=0) - np.min(X_arr, axis=0)
+            params["scale"] = np.where(rng == 0, 1.0, rng).tolist()
+
+    if "mean" in params and "scale" in params:
+        mean = np.array(params["mean"])
+        scale = np.array(params["scale"])
+        scaled = (X_arr - mean) / np.where(scale == 0, 1.0, scale)
+    elif "min" in params and "scale" in params:
+        min_val = np.array(params["min"])
+        scale = np.array(params["scale"])
+        scaled = (X_arr - min_val) / np.where(scale == 0, 1.0, scale)
+    else:
+        scaled = X_arr
+    return scaled, params
+
+
 class InspectableNeuralNetwork:
     """
     Transparent NumPy Multi-Layer Perceptron designed specifically for
@@ -43,23 +74,36 @@ class InspectableNeuralNetwork:
 
     def __init__(
         self,
-        layer_sizes: List[int],
+        layer_sizes: Optional[List[int]] = None,
+        input_dim: Optional[int] = None,
+        hidden_dims: Optional[List[int]] = None,
+        output_dim: Optional[int] = None,
+        activation: Optional[str] = None,
         hidden_activation: str = "relu",
         task_type: str = "classification",
         learning_rate: float = 0.01,
         optimizer: str = "adam",
         weight_decay: float = 1e-4,
+        seed: Optional[int] = None,
         random_state: int = 42,
     ):
+        if layer_sizes is None:
+            if input_dim is not None and output_dim is not None:
+                layer_sizes = [input_dim] + (hidden_dims or []) + [output_dim]
+            else:
+                layer_sizes = [2, 4, 1]
+
         self.layer_sizes = layer_sizes
+        if activation is not None:
+            hidden_activation = activation
         self.hidden_activation_name = hidden_activation.lower()
         self.task_type = task_type
         self.learning_rate = learning_rate
         self.optimizer_type = optimizer.lower()
         self.weight_decay = weight_decay
-        self.random_state = random_state
+        self.random_state = seed if seed is not None else random_state
 
-        np.random.seed(random_state)
+        np.random.seed(self.random_state)
 
         # Set activation functions
         if self.hidden_activation_name == "sigmoid":
@@ -97,9 +141,19 @@ class InspectableNeuralNetwork:
         self.feature_names: List[str] = []
         self.class_labels: List[str] = []
 
+    def scale_features(self, X: Any) -> np.ndarray:
+        """Scales raw physical features using stored scaler parameters if present."""
+        if not self.scaler_params:
+            return np.asarray(X, dtype=float)
+        scaled, _ = scale_features(X, params=self.scaler_params)
+        return scaled
+
     def forward(self, X: np.ndarray) -> Tuple[List[np.ndarray], List[np.ndarray]]:
         """Computes forward pass through all layers, retaining intermediate activations."""
-        activations = [X]
+        X_arr = np.asarray(X, dtype=float)
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(1, -1)
+        activations = [X_arr]
         pre_activations = []
 
         for i in range(len(self.weights)):
@@ -126,6 +180,8 @@ class InspectableNeuralNetwork:
 
     def train_epoch(self, X: np.ndarray, y: np.ndarray, batch_size: int = 32) -> float:
         """Trains one full epoch on mini-batches and returns mean loss."""
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y)
         n_samples = len(X)
         indices = np.random.permutation(n_samples)
         epoch_losses = []
@@ -205,8 +261,11 @@ class InspectableNeuralNetwork:
 
         return float(np.mean(epoch_losses))
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        activations, _ = self.forward(X)
+    def predict(self, X: Any) -> np.ndarray:
+        X_arr = np.asarray(X, dtype=float)
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(1, -1)
+        activations, _ = self.forward(X_arr)
         output = activations[-1]
         if self.task_type == "classification":
             if self.layer_sizes[-1] == 1:
@@ -216,8 +275,11 @@ class InspectableNeuralNetwork:
         else:
             return output.ravel()
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        activations, _ = self.forward(X)
+    def predict_proba(self, X: Any) -> np.ndarray:
+        X_arr = np.asarray(X, dtype=float)
+        if X_arr.ndim == 1:
+            X_arr = X_arr.reshape(1, -1)
+        activations, _ = self.forward(X_arr)
         output = activations[-1]
         if self.task_type == "classification":
             if self.layer_sizes[-1] == 1:

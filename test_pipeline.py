@@ -34,6 +34,12 @@ def test_pipeline():
     circles_ds = r.json()
     print(f"✔ Synthetic Circles Dataset Created: ID={circles_ds['id']}, Rows={circles_ds['row_count']}")
 
+    # Clean up prior test models to ensure workspace limit (10 max) is never exceeded
+    existing_models = requests.get(f"{BASE_URL}/api/models").json()
+    for em in existing_models:
+        if em["name"].startswith("E2E ") or len(existing_models) >= 9:
+            requests.delete(f"{BASE_URL}/api/models/{em['id']}")
+
     # 4. Create Neural Network Model
     r = requests.post(f"{BASE_URL}/api/models", json={
         "name": "E2E Neural Classifier",

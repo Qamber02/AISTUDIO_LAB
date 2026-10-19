@@ -147,33 +147,51 @@ def batch_evaluate(model_id: str):
     clf_report = None
 
     if row["task_type"] == "classification":
-        # Convert true labels to numeric if needed
-        classes = np.unique(np.concatenate([y_true, y_pred]))
+        target_classes = getattr(model_obj, "class_labels", None) or getattr(model_obj, "target_classes_", None)
+        # If predictions are integer indices and target_classes exist, map to class labels if y_true is string
+        if target_classes and len(y_pred) > 0 and isinstance(y_pred[0], (int, np.integer, np.int64, np.int32)):
+            if len(y_true) > 0 and isinstance(y_true[0], str):
+                y_pred = np.array([target_classes[int(p)] if int(p) < len(target_classes) else str(p) for p in y_pred])
+
+        y_true_str = np.array([str(x) for x in y_true])
+        y_pred_str = np.array([str(x) for x in y_pred])
+
+        classes = sorted(list(set(y_true_str).union(set(y_pred_str))))
         classes_list = [str(c) for c in classes]
-        cm = confusion_matrix(y_true, y_pred, labels=classes)
+        cm = confusion_matrix(y_true_str, y_pred_str, labels=classes)
         conf_matrix = cm.tolist()
         try:
-            clf_report = classification_report(y_true, y_pred, output_dict=True, zero_division=0)
+            clf_report = classification_report(y_true_str, y_pred_str, output_dict=True, zero_division=0)
         except Exception:
             clf_report = {}
 
-        acc = float(round(np.mean(y_true == y_pred), 4))
+        acc = float(round(np.mean(y_true_str == y_pred_str), 4))
         metrics = {"accuracy": acc, "loss": round(1.0 - acc, 4)}
+
+        # Samples preview (limit 20)
+        preview = []
+        for idx in range(min(20, len(df))):
+            preview.append({
+                "features": {f: float(round(X_df.iloc[idx][f], 2)) for f in feature_names[:4]},
+                "actual": str(y_true_str[idx]),
+                "predicted": str(y_pred_str[idx]),
+                "match": bool(y_true_str[idx] == y_pred_str[idx]),
+            })
     else:
         r2 = float(round(r2_score(y_true, y_pred), 4))
         mse = float(round(mean_squared_error(y_true, y_pred), 4))
         mae = float(round(mean_absolute_error(y_true, y_pred), 4))
         metrics = {"r2": r2, "mse": mse, "rmse": float(round(np.sqrt(mse), 4)), "mae": mae}
 
-    # Samples preview (limit 20)
-    preview = []
-    for idx in range(min(20, len(df))):
-        preview.append({
-            "features": {f: float(round(X_df.iloc[idx][f], 2)) for f in feature_names[:4]},
-            "actual": str(y_true[idx]),
-            "predicted": str(y_pred[idx]),
-            "match": bool(y_true[idx] == y_pred[idx]),
-        })
+        # Samples preview (limit 20)
+        preview = []
+        for idx in range(min(20, len(df))):
+            preview.append({
+                "features": {f: float(round(X_df.iloc[idx][f], 2)) for f in feature_names[:4]},
+                "actual": str(round(float(y_true[idx]), 3)),
+                "predicted": str(round(float(y_pred[idx]), 3)),
+                "match": bool(abs(float(y_true[idx]) - float(y_pred[idx])) < 0.1),
+            })
 
     return {
         "metrics": metrics,
@@ -194,11 +212,20 @@ def export_python_code(model_id: str):
     sample_inputs = {f: 0.0 for f in feature_names}
 
     if isinstance(model_obj, InspectableNeuralNetwork):
+        act_name = getattr(model_obj, "hidden_activation_name", "relu")
+        if act_name == "tanh":
+            act_expr = "np.tanh(z)"
+        elif act_name == "sigmoid":
+            act_expr = "1.0 / (1.0 + np.exp(-np.clip(z, -500, 500)))"
+        else:
+            act_expr = "np.maximum(0, z)"
+
         code = f'''"""
 AI Model Lab — Standalone Python Inference Code
 Model ID: {model_id}
 Model Type: Neural Network (MLP)
 """
+import json
 import numpy as np
 
 # Load trained weights archive
@@ -209,11 +236,15 @@ feature_names = {feature_names}
 scaler_p = metadata.get("scaler_params", {{}})
 
 def predict(input_dict):
-    raw_vector = np.array([[input_dict.get(f, 0.0) for f in feature_names]])
+    raw_vector = np.array([[input_dict.get(f, 0.0) for f in feature_names]], dtype=float)
     if "mean" in scaler_p and "scale" in scaler_p:
         mean = np.array(scaler_p["mean"])
         scale = np.array(scaler_p["scale"])
         scaled_vector = (raw_vector - mean) / (scale + 1e-12)
+    elif "min" in scaler_p and "scale" in scaler_p:
+        min_val = np.array(scaler_p["min"])
+        scale = np.array(scaler_p["scale"])
+        scaled_vector = (raw_vector - min_val) / (scale + 1e-12)
     else:
         scaled_vector = raw_vector
 
@@ -225,13 +256,18 @@ def predict(input_dict):
         b = data[f"b_{{i}}"]
         z = np.dot(a, W) + b
         if i == num_layers - 1:
-            # Output
+            # Output activation
             if metadata["task_type"] == "classification":
-                a = 1.0 / (1.0 + np.exp(-np.clip(z, -500, 500))) if W.shape[1] == 1 else np.exp(z) / np.sum(np.exp(z))
+                if W.shape[1] == 1:
+                    a = 1.0 / (1.0 + np.exp(-np.clip(z, -500, 500)))
+                else:
+                    z_shifted = z - np.max(z, axis=-1, keepdims=True)
+                    exp_z = np.exp(z_shifted)
+                    a = exp_z / np.sum(exp_z, axis=-1, keepdims=True)
             else:
                 a = z
         else:
-            a = np.maximum(0, z) # ReLU
+            a = {act_expr}
     return a
 
 # Test sample query
@@ -246,6 +282,7 @@ Model ID: {model_id}
 Model Type: {model_type}
 """
 import joblib
+import numpy as np
 import pandas as pd
 
 # Load full pipeline (fitted scaler + estimator)
@@ -253,12 +290,12 @@ pipeline = joblib.load("{model_id}.joblib")
 feature_names = {feature_names}
 
 def predict(input_dict):
-    df_query = pd.DataFrame([input_dict])[feature_names]
-    prediction = pipeline.predict(df_query)
+    query_vals = np.array([[input_dict.get(f, 0.0) for f in feature_names]], dtype=float)
+    prediction = pipeline.predict(query_vals)
     proba = None
     if hasattr(pipeline, "predict_proba"):
         try:
-            proba = pipeline.predict_proba(df_query)[0]
+            proba = pipeline.predict_proba(query_vals)[0]
         except Exception:
             pass
     return prediction[0], proba

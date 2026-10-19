@@ -50,6 +50,7 @@ class TrainingManager:
             cls._instance.sessions: Dict[str, TrainingSession] = {}
             cls._instance.subscribers: Dict[str, List[WebSocket]] = {}
             cls._instance.lock = threading.Lock()
+            cls._instance.loop: Optional[asyncio.AbstractEventLoop] = None
         return cls._instance
 
     def register_websocket(self, model_id: str, ws: WebSocket):
@@ -57,6 +58,10 @@ class TrainingManager:
             if model_id not in self.subscribers:
                 self.subscribers[model_id] = []
             self.subscribers[model_id].append(ws)
+            try:
+                self.loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
 
     def unregister_websocket(self, model_id: str, ws: WebSocket):
         with self.lock:
@@ -67,6 +72,7 @@ class TrainingManager:
         """Dispatches telemetry frames to active WebSocket clients."""
         with self.lock:
             clients = list(self.subscribers.get(model_id, []))
+            loop = self.loop
 
         if not clients:
             return
@@ -74,17 +80,29 @@ class TrainingManager:
         message_str = json.dumps(tick)
 
         async def send_all():
+            dead_clients = []
             for ws in clients:
                 try:
                     await ws.send_text(message_str)
                 except Exception:
-                    pass
+                    dead_clients.append(ws)
+            if dead_clients:
+                with self.lock:
+                    for d in dead_clients:
+                        if model_id in self.subscribers and d in self.subscribers[model_id]:
+                            self.subscribers[model_id].remove(d)
 
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(send_all())
-        except RuntimeError:
-            pass
+        if loop and loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(send_all(), loop)
+            except Exception:
+                pass
+        else:
+            try:
+                cur_loop = asyncio.get_running_loop()
+                cur_loop.create_task(send_all())
+            except RuntimeError:
+                pass
 
     def start_training(
         self,
@@ -325,10 +343,20 @@ class TrainingManager:
             val_preds = nn.predict(X_val_scaled)
             if task_type == "classification":
                 val_acc = float(np.mean(val_preds == y_val))
-                val_loss = float(round(1.0 - val_acc, 4))
+                val_probs = nn.predict_proba(X_val_scaled)
+                eps = 1e-12
+                val_probs_clipped = np.clip(val_probs, eps, 1.0 - eps)
+                if output_size == 1:
+                    p1 = val_probs_clipped[:, 1] if val_probs_clipped.ndim > 1 else val_probs_clipped.ravel()
+                    val_loss = float(-np.mean(y_val * np.log(p1) + (1.0 - y_val) * np.log(1.0 - p1)))
+                else:
+                    y_val_one_hot = np.zeros((len(y_val), output_size))
+                    for idx, label in enumerate(y_val):
+                        y_val_one_hot[idx, int(label)] = 1.0
+                    val_loss = float(-np.mean(np.sum(y_val_one_hot * np.log(val_probs_clipped), axis=-1)))
                 metrics = {
                     "train_loss": round(train_loss, 4),
-                    "val_loss": val_loss,
+                    "val_loss": round(val_loss, 4),
                     "train_metric": round(float(np.mean(nn.predict(X_train_scaled) == y_train)), 4),
                     "val_metric": round(val_acc, 4),
                 }

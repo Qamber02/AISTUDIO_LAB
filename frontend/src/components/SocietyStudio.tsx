@@ -1,34 +1,22 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import type { SocietyState, Citizen } from '../types';
+import type { SocietyState } from '../types';
 import { api } from '../api';
 import { 
   Users, 
   Play, 
   Pause, 
-  FastForward, 
   SkipForward, 
-  Shield, 
-  Sword, 
-  Sparkles, 
   Zap, 
   Crown, 
   Scale, 
   Coins, 
   MessageSquare, 
-  AlertTriangle,
-  Flame,
-  Globe,
-  Compass,
-  CheckCircle2,
-  XCircle,
-  Eye,
-  Award,
-  Activity,
-  Heart,
-  Battery,
-  Layers,
-  ChevronRight,
-  Radio
+  Globe, 
+  Activity, 
+  Heart, 
+  Layers, 
+  ChevronRight, 
+  Radio 
 } from 'lucide-react';
 import { AgoraChatroom } from './AgoraChatroom';
 
@@ -37,7 +25,7 @@ export const SocietyStudio: React.FC = () => {
   const [selectedCitizenId, setSelectedCitizenId] = useState<string>('');
   const [godActionMsg, setGodActionMsg] = useState('');
   const [logFilter, setLogFilter] = useState<'all' | 'chat' | 'duel' | 'trade' | 'law' | 'god'>('all');
-  const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [isAutoScroll] = useState(true);
   const [activeView, setActiveView] = useState<'chat' | 'map' | 'split'>('chat');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -55,8 +43,8 @@ export const SocietyStudio: React.FC = () => {
     api.getSocietyState()
       .then((state) => {
         setSocietyState(state);
-        if (state.agents.length > 0 && !selectedCitizenId) {
-          setSelectedCitizenId(state.agents[0].id);
+        if (state.agents.length > 0) {
+          setSelectedCitizenId((prev) => prev || state.agents[0].id);
         }
       })
       .catch((e) => console.error('Failed to get society state', e));
@@ -370,9 +358,9 @@ export const SocietyStudio: React.FC = () => {
   const actionLabels = [
     { key: 0, label: 'Mine Resources', icon: '⛏️', color: '#06b6d4' },
     { key: 1, label: 'Forge Weapons', icon: '🔨', color: '#f59e0b' },
-    { key: 2, label: 'Duel Rival', icon: '⚔️', color: '#ef4444' },
-    { key: 3, label: 'Trade Pact', icon: '🤝', color: '#10b981' },
-    { key: 4, label: 'Propose Law', icon: '📜', color: '#8b5cf6' },
+    { key: 2, label: 'Trade Pact', icon: '🤝', color: '#10b981' },
+    { key: 3, label: 'Propose Law', icon: '📜', color: '#8b5cf6' },
+    { key: 4, label: 'Duel Rival', icon: '⚔️', color: '#ef4444' },
     { key: 5, label: 'Meditate & Heal', icon: '🧘', color: '#38bdf8' },
   ];
 
@@ -1114,8 +1102,8 @@ export const SocietyStudio: React.FC = () => {
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {actionLabels.map((act) => {
-                      const weight = selectedCitizen.policy_bias?.[act.key] || 0.1;
-                      const pct = Math.max(5, Math.min(100, Math.round(weight * 250)));
+                      const weight = selectedCitizen.policy_bias?.[act.key] ?? 0.1;
+                      const pct = Math.max(2, Math.min(100, Math.round(weight * 100)));
                       return (
                         <div key={act.key} style={{ fontSize: '0.72rem' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>

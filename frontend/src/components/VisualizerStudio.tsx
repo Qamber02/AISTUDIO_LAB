@@ -116,7 +116,7 @@ export const VisualizerStudio: React.FC<VisualizerStudioProps> = ({
       .then((data) => setBoundaryData(data))
       .catch((e) => console.error('Failed to get boundary slice', e))
       .finally(() => setIsLoadingBoundary(false));
-  }, [activeModel?.id, featureX, featureY, fixedFeatures]);
+  }, [activeModel?.id, activeModel?.status, featureX, featureY, fixedFeatures]);
 
   // Render Hybrid Neural Network Canvas Synapses
   useEffect(() => {

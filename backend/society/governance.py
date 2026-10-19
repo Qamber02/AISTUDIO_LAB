@@ -110,7 +110,7 @@ class GovernanceSystem:
 
         self.chancellor_id = winner_id
         self.chancellor_name = winner_name
-        self.chancellor_term = 60
+        self.chancellor_term = 30
 
         return {
             "winner_id": winner_id,

@@ -27,6 +27,7 @@ wheels/
 # Databases & local storage caches
 backend/storage/models/*.pkl
 backend/storage/models/*.npz
+backend/storage/models/*.joblib
 backend/storage/datasets/*.csv
 backend/storage/ai_model_lab.db
 *.db

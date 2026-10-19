@@ -32,8 +32,16 @@ async def upload_csv(
     name: Optional[str] = Form(None),
     target_col: Optional[str] = Form(None),
 ):
-    dataset_name = name or (file.filename.replace(".csv", "") if file.filename else "Uploaded Dataset")
+    if not file.filename or not file.filename.lower().endswith((".csv", ".txt")):
+        raise HTTPException(status_code=400, detail="Only .csv and .txt tabular files are supported.")
+
     content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum supported CSV upload is 50MB.")
+    if len(content.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    dataset_name = name or (file.filename.replace(".csv", "") if file.filename else "Uploaded Dataset")
     try:
         dataset_id, ds_dict = parse_and_save_csv(name=dataset_name, file_content_bytes=content, target_col=target_col)
         return ds_dict

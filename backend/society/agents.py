@@ -180,15 +180,29 @@ CITIZEN_ARCHETYPES = [
 
 
 class CitizenAgent:
-    def __init__(self, config: Dict[str, Any], initial_x: int, initial_y: int):
-        self.id = config["id"]
-        self.name = config["name"]
-        self.algorithm = config["algorithm"]
-        self.archetype = config["archetype"]
-        self.faction = config["faction"]
-        self.color = config["color"]
-        self.avatar = config["avatar"]
-        self.quotes = config["quotes"]
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        initial_x: int = 0,
+        initial_y: int = 0,
+        id: Optional[Any] = None,
+        name: Optional[str] = None,
+        role: Optional[str] = None,
+        archetype: Optional[str] = None,
+        algorithm: Optional[str] = None,
+        **kwargs,
+    ):
+        if config is None:
+            config = {}
+        self.id = str(id if id is not None else config.get("id", "agent_aria"))
+        self.name = name or config.get("name", "Citizen")
+        self.algorithm = algorithm or config.get("algorithm", "neural_network")
+        self.archetype = role or archetype or config.get("archetype", "Scholar")
+        self.faction = kwargs.get("faction", config.get("faction", "Independent"))
+        self.color = kwargs.get("color", config.get("color", "#8b5cf6"))
+        self.avatar = kwargs.get("avatar", config.get("avatar", "🤖"))
+        self.quotes = config.get("quotes", [f"The system converges under {self.name}."])
+        self.action_history: List[Dict[str, Any]] = []
 
         # Dynamic State
         self.x = initial_x
@@ -206,15 +220,14 @@ class CitizenAgent:
         self.equipped_weapon = WEAPONS_CATALOG.get(weapon_id, WEAPONS_CATALOG["plasma_blade"]).copy()
 
         # Speech bubble
-        self.speech_bubble: Optional[str] = random.choice(self.quotes)
+        self.speech_bubble: Optional[str] = random.choice(self.quotes) if self.quotes else None
         self.speech_timer: int = 3
 
         # Relationships: trust with other 9 agents (-1.0 to 1.0)
         self.trust_matrix: Dict[str, float] = {}
         for c in CITIZEN_ARCHETYPES:
             if c["id"] != self.id:
-                # Same faction has natural +0.4 trust, different faction 0.0
-                initial_trust = 0.4 if c["faction"] == self.faction else 0.05
+                initial_trust = 0.4 if c.get("faction") == self.faction else 0.05
                 self.trust_matrix[c["id"]] = initial_trust
 
         # Cooldown & Pacing State (30 seconds per action)
@@ -223,9 +236,9 @@ class CitizenAgent:
         self.last_action_name: str = "Resting"
 
         # Online Learning Policy Weights (8 features -> 6 actions)
-        # Seeded with archetype bias
-        base_bias = np.array(config["bias"])
-        self.policy_weights = np.random.randn(8, 6) * 0.1
+        bias_list = config.get("bias", [1.0 / len(ACTIONS)] * len(ACTIONS))
+        base_bias = np.array(bias_list, dtype=float)
+        self.policy_weights = np.random.randn(8, len(ACTIONS)) * 0.1
         self.policy_bias = np.log(base_bias + 1e-4)
 
         self.last_features: Optional[np.ndarray] = None
@@ -283,7 +296,17 @@ class CitizenAgent:
             1.0 if council_active else 0.0
         ])
 
-    def decide_action(self, council_active: bool, nearby_rival_dist: float) -> str:
+    def decide_action(self, *args, **kwargs) -> str:
+        council_active = False
+        nearby_rival_dist = 5.0
+        if args:
+            if isinstance(args[0], dict):
+                council_active = args[0].get("council", False)
+                nearby_rival_dist = float(args[0].get("min_dist", 5.0))
+            else:
+                council_active = bool(args[0])
+                if len(args) > 1:
+                    nearby_rival_dist = float(args[1])
         avg_trust = np.mean(list(self.trust_matrix.values())) if self.trust_matrix else 0.0
         features = self.extract_features(council_active, nearby_rival_dist, avg_trust)
         self.last_features = features
@@ -300,21 +323,20 @@ class CitizenAgent:
         self.last_action_idx = action_idx
         return ACTIONS[action_idx]
 
-    def learn_from_outcome(self, reward: float, lr: float = 0.04):
-        """Online Policy Gradient: updates weights so successful decisions are reinforced."""
-        if self.last_features is None:
-            return
-
-        # Simple REINFORCE update on chosen action
-        grad = np.zeros(6)
-        grad[self.last_action_idx] = reward
-
-        # Outer product feature x gradient
-        delta_W = np.outer(self.last_features, grad)
-        self.policy_weights += lr * delta_W
+    def learn(self, action: str, reward: float, lr: float = 0.04):
+        """Reinforces or discourages specific action in policy."""
+        if action in ACTIONS:
+            action_idx = ACTIONS.index(action)
+        else:
+            action_idx = 0
+        grad = np.zeros(len(ACTIONS))
+        grad[action_idx] = reward
         self.policy_bias += lr * grad
-
-        # Gain experience
+        self.policy_bias = np.clip(self.policy_bias, -5.0, 5.0)
+        if self.last_features is not None:
+            delta_W = np.outer(self.last_features, grad)
+            self.policy_weights += lr * delta_W
+            self.policy_weights = np.clip(self.policy_weights, -5.0, 5.0)
         if reward > 0:
             self.experience += int(reward * 10)
             if self.experience >= self.level * 50:
@@ -322,11 +344,20 @@ class CitizenAgent:
                 self.influence += 5
                 self.health = min(100, self.health + 20)
 
+    def learn_from_outcome(self, reward: float, lr: float = 0.04):
+        """Online Policy Gradient: updates weights so successful decisions are reinforced."""
+        action_name = ACTIONS[self.last_action_idx] if 0 <= self.last_action_idx < len(ACTIONS) else "contemplate"
+        self.learn(action_name, reward, lr=lr)
+
     def speak(self, text: Optional[str] = None, duration: int = 5):
         self.speech_bubble = text or random.choice(self.quotes)
         self.speech_timer = duration
 
     def to_dict(self) -> Dict[str, Any]:
+        exp_b = np.exp(self.policy_bias - np.max(self.policy_bias))
+        policy_probs = (exp_b / np.sum(exp_b)).round(4).tolist()
+        policy_dict = {action: float(p) for action, p in zip(ACTIONS, policy_probs)}
+
         return {
             "id": self.id,
             "name": self.name,
@@ -348,7 +379,9 @@ class CitizenAgent:
             "equipped_weapon": self.equipped_weapon,
             "speech_bubble": self.speech_bubble if self.speech_timer > 0 else None,
             "trust_matrix": self.trust_matrix,
-            "policy_bias": self.policy_bias.tolist(),
+            "policy_bias": policy_dict,
+            "policy_probs_array": policy_probs,
+            "raw_policy_bias": self.policy_bias.tolist(),
             "action_cooldown": max(0, self.action_cooldown),
             "cooldown_max": self.cooldown_max,
             "last_action_name": self.last_action_name,
