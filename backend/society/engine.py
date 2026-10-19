@@ -300,7 +300,7 @@ class SocietySimulationEngine:
                     agent.speak("Deep in contemplation... (30s cooldown)")
 
         # 3. Agora Autonomous Citizen Dialogue (Paced multi-agent chat)
-        chat_msg = self.chatroom.step_chat(self.agents, self.governance)
+        chat_msg = self.chatroom.step_chat(self.agents, self.governance, self.event_logs)
         if chat_msg:
             if chat_msg.get("sender_id") == "system":
                 self._add_log(f"📢 {chat_msg['text']}", category="chat")
@@ -414,7 +414,7 @@ class SocietySimulationEngine:
 
     def post_user_chat(self, user_text: str) -> List[Dict[str, Any]]:
         with self.lock:
-            msgs = self.chatroom.post_user_message(user_text, self.agents)
+            msgs = self.chatroom.post_user_message(user_text, self.agents, self.governance, self.event_logs)
             self._add_log(f"💬 ARCHITECT CHAT: \"{user_text[:50]}\"", category="chat")
             full_state = self.get_full_state()
             self._broadcast_state(full_state)

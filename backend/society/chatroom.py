@@ -2,6 +2,8 @@ import time
 import random
 from typing import Dict, Any, List, Optional
 
+from .dialogue_engine import DynamicDialogueEngine
+
 TOPICS = [
     {
         "id": "governance",
@@ -239,6 +241,7 @@ class ChatroomManager:
         self.last_speaker_id: Optional[str] = None
         self.pending_replier_id: Optional[str] = None
         self.pending_reply_target: Optional[str] = None
+        self.dialogue_engine = DynamicDialogueEngine()
 
         # Seed initial greeting messages
         self._seed_initial_dialogue()
@@ -269,8 +272,8 @@ class ChatroomManager:
                 "topic": topic
             })
 
-    def step_chat(self, agents: List[Any], governance: Any) -> Optional[Dict[str, Any]]:
-        """Called every second by simulation engine. Generates periodic in-character dialogue."""
+    def step_chat(self, agents: List[Any], governance: Any = None, event_logs: List[Any] = None) -> Optional[Dict[str, Any]]:
+        """Called every second by simulation engine. Generates periodic dynamic in-character dialogue."""
         self.topic_timer -= 1
         if self.topic_timer <= 0:
             self.active_topic = random.choice(TOPICS)
@@ -321,20 +324,19 @@ class ChatroomManager:
 
         self.last_speaker_id = speaker.id
 
-        # Generate dialogue text
-        pats = AGENT_DIALOGUE_PATTERNS.get(speaker.id, AGENT_DIALOGUE_PATTERNS["agent_aria"])
-        target_name = target_agent.name if target_agent else "Citizens"
+        # Generate dynamic in-character English dialogue reacting to previous message & topic
+        last_msg = self.messages[-1] if self.messages else None
+        text = self.dialogue_engine.generate_agent_to_agent_dialogue(
+            speaker=speaker,
+            target_agent=target_agent,
+            last_message=last_msg,
+            governance=governance,
+            active_topic=self.active_topic
+        )
 
-        if target_agent and target_agent.id in pats.get("replies", {}):
-            text = pats["replies"][target_agent.id]
-            # Next turn, target agent might reply back!
-            if random.random() < 0.7:
-                self.pending_replier_id = target_agent.id
-                self.pending_reply_target = speaker.id
-        elif target_agent and "default" in pats.get("replies", {}):
-            text = pats["replies"]["default"].replace("{target}", target_agent.name.split(" ")[0])
-        else:
-            text = random.choice(pats.get("initiations", speaker.quotes))
+        if target_agent and random.random() < 0.65:
+            self.pending_replier_id = target_agent.id
+            self.pending_reply_target = speaker.id
 
         msg = {
             "id": f"msg_{time.time_ns()}_{random.randint(100, 999)}",
@@ -359,8 +361,8 @@ class ChatroomManager:
 
         return msg
 
-    def post_user_message(self, user_text: str, agents: List[Any]) -> List[Dict[str, Any]]:
-        """Handles a direct message from the user/creator into the chatroom."""
+    def post_user_message(self, user_text: str, agents: List[Any], governance: Any = None, event_logs: List[Any] = None) -> List[Dict[str, Any]]:
+        """Handles a direct message from the user/creator into the chatroom with dynamic English responses."""
         user_msg = {
             "id": f"msg_user_{time.time_ns()}",
             "sender_id": "creator",
@@ -395,9 +397,14 @@ class ChatroomManager:
         new_msgs = [user_msg]
 
         for resp in responders:
-            pats = AGENT_DIALOGUE_PATTERNS.get(resp.id, AGENT_DIALOGUE_PATTERNS["agent_aria"])
-            resp_list = pats.get("user_responses", [f"We acknowledge your message, Architect: '{user_text}'."])
-            reply_text = random.choice(resp_list)
+            # Generate intelligent dynamic English response to the user's specific prompt
+            reply_text = self.dialogue_engine.generate_agent_response_to_user(
+                agent=resp,
+                user_text=user_text,
+                governance=governance,
+                event_logs=event_logs or [],
+                other_agents=agents
+            )
 
             agent_msg = {
                 "id": f"msg_resp_{time.time_ns()}_{resp.id}",
