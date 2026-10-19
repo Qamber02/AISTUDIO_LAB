@@ -27,8 +27,10 @@ import {
   Heart,
   Battery,
   Layers,
-  ChevronRight
+  ChevronRight,
+  Radio
 } from 'lucide-react';
+import { AgoraChatroom } from './AgoraChatroom';
 
 export const SocietyStudio: React.FC = () => {
   const [societyState, setSocietyState] = useState<SocietyState | null>(null);
@@ -36,6 +38,7 @@ export const SocietyStudio: React.FC = () => {
   const [godActionMsg, setGodActionMsg] = useState('');
   const [logFilter, setLogFilter] = useState<'all' | 'duel' | 'trade' | 'law' | 'god'>('all');
   const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [activeView, setActiveView] = useState<'chat' | 'map' | 'split'>('chat');
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -275,7 +278,7 @@ export const SocietyStudio: React.FC = () => {
         ctx.fillText(agent.speech_bubble, bx + bubbleW / 2, by + 15, bubbleW - 8);
       }
     });
-  }, [societyState, selectedCitizen]);
+  }, [societyState, selectedCitizen, activeView]);
 
   // Click on canvas to select citizen
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -362,6 +365,158 @@ export const SocietyStudio: React.FC = () => {
     { key: 4, label: 'Propose Law', icon: '📜', color: '#8b5cf6' },
     { key: 5, label: 'Meditate & Heal', icon: '🧘', color: '#38bdf8' },
   ];
+
+  const renderAgoraChatBanner = () => {
+    const lastMsg = societyState?.chat_messages && societyState.chat_messages.length > 0
+      ? societyState.chat_messages[societyState.chat_messages.length - 1]
+      : null;
+
+    return (
+      <div
+        onClick={() => setActiveView('chat')}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 18px',
+          borderRadius: '12px',
+          background: 'linear-gradient(90deg, rgba(139, 92, 246, 0.15) 0%, rgba(6, 182, 212, 0.15) 100%)',
+          border: '1px solid rgba(139, 92, 246, 0.35)',
+          cursor: 'pointer',
+          gap: '12px',
+          transition: 'all 0.15s ease',
+        }}
+        title="Click to enter the Citizen Agora Chatroom"
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+          <MessageSquare size={18} color="var(--accent-cyan)" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Agora Live Dialogue:</span>
+          {lastMsg ? (
+            <span style={{ fontSize: '0.82rem', color: '#f1f5f9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <strong style={{ color: lastMsg.sender_color }}>{lastMsg.sender_name.split(' ')[0]}:</strong> "{lastMsg.text}"
+            </span>
+          ) : (
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>10 Citizen Bots debating civic laws...</span>
+          )}
+        </div>
+
+        <span className="badge badge-cyan" style={{ fontSize: '0.72rem', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          <span>Enter Agora Chat</span>
+          <ChevronRight size={13} />
+        </span>
+      </div>
+    );
+  };
+
+  const renderMapCard = () => (
+    <div className="glass-panel" style={{ padding: '22px', position: 'relative' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Globe size={18} color="var(--accent-cyan)" />
+          <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>Autonomous Territory & Avatars</h3>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
+            Alliance Link
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fbbf24' }} />
+            Chancellor
+          </span>
+        </div>
+      </div>
+
+      <div style={{
+        position: 'relative',
+        background: '#040713',
+        borderRadius: '12px',
+        overflow: 'hidden',
+        border: '1px solid var(--border-highlight)',
+        boxShadow: 'inset 0 0 30px rgba(0,0,0,0.8)',
+      }}>
+        <canvas
+          ref={canvasRef}
+          width={800}
+          height={520}
+          onClick={handleCanvasClick}
+          style={{ display: 'block', width: '100%', height: 'auto', cursor: 'crosshair' }}
+        />
+
+        {/* Map Controls Helper */}
+        <div style={{
+          position: 'absolute',
+          bottom: '10px',
+          right: '12px',
+          background: 'rgba(7, 10, 19, 0.85)',
+          padding: '4px 10px',
+          borderRadius: '6px',
+          border: '1px solid var(--border-subtle)',
+          fontSize: '0.72rem',
+          color: 'var(--text-muted)',
+        }}>
+          Click any citizen avatar to open dossiers
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderActionLedger = () => (
+    <div className="glass-panel" style={{ padding: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <MessageSquare size={16} color="var(--accent-cyan)" />
+          <h3 style={{ fontSize: '1.05rem', fontWeight: 700 }}>Autonomous Political & Combat Ledger</h3>
+        </div>
+
+        {/* Filter Tabs */}
+        <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-secondary)', padding: '3px', borderRadius: '8px' }}>
+          {(['all', 'duel', 'trade', 'law', 'god'] as const).map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setLogFilter(cat)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '0.72rem',
+                fontWeight: logFilter === cat ? 700 : 500,
+                border: 'none',
+                background: logFilter === cat ? 'var(--bg-tertiary)' : 'transparent',
+                color: logFilter === cat ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                cursor: 'pointer',
+                textTransform: 'capitalize',
+              }}
+            >
+              {cat === 'all' ? 'All' : cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        ref={logContainerRef}
+        style={{
+          height: '190px',
+          overflowY: 'auto',
+          background: '#040713',
+          borderRadius: '8px',
+          padding: '12px 14px',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '0.78rem',
+          color: '#e2e8f0',
+          lineHeight: 1.7,
+          border: '1px solid var(--border-subtle)',
+        }}
+      >
+        {filteredLogs.map((log) => (
+          <div key={log.id} style={{ display: 'flex', gap: '10px', marginBottom: '4px' }}>
+            <span style={{ color: 'var(--text-muted)' }}>[{log.time}]</span>
+            <span>{log.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '22px', maxWidth: '1540px', margin: '0 auto', padding: '24px' }}>
@@ -474,6 +629,89 @@ export const SocietyStudio: React.FC = () => {
         </div>
       )}
 
+      {/* View Mode Selector Tabs: Agora Chatroom vs Terrarium Map vs Split View */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: 'rgba(10, 16, 33, 0.85)',
+        padding: '8px 14px',
+        borderRadius: '12px',
+        border: '1px solid var(--border-subtle)',
+        backdropFilter: 'blur(10px)',
+        flexWrap: 'wrap',
+        gap: '12px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={() => setActiveView('chat')}
+            className={`btn ${activeView === 'chat' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.84rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <MessageSquare size={16} />
+            <span>Citizen Agora Chatroom</span>
+            {societyState.chat_messages && societyState.chat_messages.length > 0 && (
+              <span style={{
+                background: activeView === 'chat' ? '#040713' : 'var(--accent-cyan)',
+                color: activeView === 'chat' ? 'var(--accent-cyan)' : '#040713',
+                fontSize: '0.66rem',
+                fontWeight: 800,
+                padding: '1px 6px',
+                borderRadius: '10px',
+                fontFamily: 'var(--font-mono)'
+              }}>
+                {societyState.chat_messages.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveView('map')}
+            className={`btn ${activeView === 'map' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.84rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Globe size={16} />
+            <span>Territory Map & Council</span>
+          </button>
+
+          <button
+            onClick={() => setActiveView('split')}
+            className={`btn ${activeView === 'split' ? 'btn-primary' : 'btn-secondary'}`}
+            style={{
+              padding: '8px 16px',
+              fontSize: '0.84rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Layers size={16} />
+            <span>Split Arena View</span>
+          </button>
+        </div>
+
+        {/* Dynamic Topic Mini-Bar */}
+        {societyState.active_chat_topic && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <Radio size={13} color="#10b981" />
+            <span style={{ color: 'var(--text-muted)' }}>Civic Debate:</span>
+            <span style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>{societyState.active_chat_topic.title}</span>
+          </div>
+        )}
+      </div>
+
       {/* 10-Citizen Horizontal Quick-Roster Strip */}
       <div style={{
         display: 'flex',
@@ -557,121 +795,45 @@ export const SocietyStudio: React.FC = () => {
         })}
       </div>
 
-      {/* Main Grid: 2D Cyber-Terrarium Map (Left) + Dossier & Council (Right) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(640px, 1.55fr) minmax(380px, 1fr)', gap: '22px', alignItems: 'start' }}>
-        
-        {/* Left Column: Interactive 2D Map & Filterable Action Ledger */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
-          {/* Map Card */}
-          <div className="glass-panel" style={{ padding: '22px', position: 'relative' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Globe size={18} color="var(--accent-cyan)" />
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 700 }}>Autonomous Territory & Avatars</h3>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} />
-                  Alliance Link
-                </span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fbbf24' }} />
-                  Chancellor
-                </span>
-              </div>
-            </div>
+      {/* 1. AGORA CHATROOM VIEW */}
+      {activeView === 'chat' && (
+        <AgoraChatroom
+          societyState={societyState}
+          selectedCitizenId={selectedCitizen?.id || ''}
+          onSelectCitizen={setSelectedCitizenId}
+          onGodAction={handleGodAction}
+          isCompact={false}
+        />
+      )}
 
-            <div style={{
-              position: 'relative',
-              background: '#040713',
-              borderRadius: '12px',
-              overflow: 'hidden',
-              border: '1px solid var(--border-highlight)',
-              boxShadow: 'inset 0 0 30px rgba(0,0,0,0.8)',
-            }}>
-              <canvas
-                ref={canvasRef}
-                width={800}
-                height={520}
-                onClick={handleCanvasClick}
-                style={{ display: 'block', width: '100%', height: 'auto', cursor: 'crosshair' }}
-              />
-
-              {/* Map Controls Helper */}
-              <div style={{
-                position: 'absolute',
-                bottom: '10px',
-                right: '12px',
-                background: 'rgba(7, 10, 19, 0.85)',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-subtle)',
-                fontSize: '0.72rem',
-                color: 'var(--text-muted)',
-              }}>
-                Click any citizen avatar to open dossiers
-              </div>
-            </div>
+      {/* 2. SPLIT ARENA VIEW (Terrarium Map + Live Agora Chat) */}
+      {activeView === 'split' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(520px, 1.15fr) minmax(500px, 1.25fr)', gap: '22px', alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {renderMapCard()}
+            {renderActionLedger()}
           </div>
-
-          {/* Action Ledger with Filter Tabs */}
-          <div className="glass-panel" style={{ padding: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <MessageSquare size={16} color="var(--accent-cyan)" />
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 700 }}>Autonomous Political & Combat Ledger</h3>
-              </div>
-
-              {/* Filter Tabs */}
-              <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-secondary)', padding: '3px', borderRadius: '8px' }}>
-                {(['all', 'duel', 'trade', 'law', 'god'] as const).map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setLogFilter(cat)}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontSize: '0.72rem',
-                      fontWeight: logFilter === cat ? 700 : 500,
-                      border: 'none',
-                      background: logFilter === cat ? 'var(--bg-tertiary)' : 'transparent',
-                      color: logFilter === cat ? 'var(--accent-cyan)' : 'var(--text-muted)',
-                      cursor: 'pointer',
-                      textTransform: 'capitalize',
-                    }}
-                  >
-                    {cat === 'all' ? 'All' : cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div
-              ref={logContainerRef}
-              style={{
-                height: '190px',
-                overflowY: 'auto',
-                background: '#040713',
-                borderRadius: '8px',
-                padding: '12px 14px',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.78rem',
-                color: '#e2e8f0',
-                lineHeight: 1.7,
-                border: '1px solid var(--border-subtle)',
-              }}
-            >
-              {filteredLogs.map((log) => (
-                <div key={log.id} style={{ display: 'flex', gap: '10px', marginBottom: '4px' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>[{log.time}]</span>
-                  <span>{log.text}</span>
-                </div>
-              ))}
-            </div>
+          <div>
+            <AgoraChatroom
+              societyState={societyState}
+              selectedCitizenId={selectedCitizen?.id || ''}
+              onSelectCitizen={setSelectedCitizenId}
+              onGodAction={handleGodAction}
+              isCompact={true}
+            />
           </div>
-
         </div>
+      )}
+
+      {/* 3. TERRITORY MAP & COUNCIL VIEW */}
+      {activeView === 'map' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(640px, 1.55fr) minmax(380px, 1fr)', gap: '22px', alignItems: 'start' }}>
+          {/* Left Column: Interactive 2D Map & Filterable Action Ledger */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {renderAgoraChatBanner()}
+            {renderMapCard()}
+            {renderActionLedger()}
+          </div>
 
         {/* Right Column: Democratic Governance, Dossier & God Mode Interventions */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1139,6 +1301,7 @@ export const SocietyStudio: React.FC = () => {
         </div>
 
       </div>
+    )}
 
     </div>
   );

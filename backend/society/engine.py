@@ -9,6 +9,7 @@ from fastapi import WebSocket
 from .weapons import WEAPONS_CATALOG
 from .governance import GovernanceSystem, LAW_PRESETS
 from .agents import CitizenAgent, CITIZEN_ARCHETYPES, ACTIONS
+from .chatroom import ChatroomManager
 
 
 class SocietySimulationEngine:
@@ -43,6 +44,9 @@ class SocietySimulationEngine:
 
         # Initialize Governance
         self.governance = GovernanceSystem()
+
+        # Initialize Agora Chatroom
+        self.chatroom = ChatroomManager()
 
         # Initialize 10 Agents at dispersed initial positions with staggered action cooldowns
         self.agents: List[CitizenAgent] = []
@@ -289,6 +293,9 @@ class SocietySimulationEngine:
                 if random.random() < 0.2:
                     agent.speak("Deep in contemplation... (30s cooldown)")
 
+        # 3. Agora Autonomous Citizen Dialogue (Paced multi-agent chat)
+        self.chatroom.step_chat(self.agents, self.governance)
+
         # Broadcast state over WebSocket
         full_state = self.get_full_state()
         self._broadcast_state(full_state)
@@ -389,4 +396,15 @@ class SocietySimulationEngine:
             "map_nodes": self.map_nodes,
             "agents": [a.to_dict() for a in self.agents],
             "event_logs": self.event_logs[-35:],
+            "chat_messages": self.chatroom.get_messages(60),
+            "active_chat_topic": self.chatroom.active_topic,
         }
+
+    def post_user_chat(self, user_text: str) -> List[Dict[str, Any]]:
+        with self.lock:
+            msgs = self.chatroom.post_user_message(user_text, self.agents)
+            self._add_log(f"💬 ARCHITECT CHAT: \"{user_text[:50]}\"", category="chat")
+            full_state = self.get_full_state()
+            self._broadcast_state(full_state)
+            return msgs
+

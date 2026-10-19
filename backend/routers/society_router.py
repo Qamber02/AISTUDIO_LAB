@@ -44,10 +44,23 @@ def set_speed(req: SpeedRequest):
     return {"speed": engine.speed}
 
 
+class ChatMessageRequest(BaseModel):
+    message: str
+
+
 @router.post("/god-action")
 def apply_god_action(req: GodActionRequest):
     message = engine.god_action(req.action_type, req.payload)
     return {"status": "success", "message": message, "state": engine.get_full_state()}
+
+
+@router.post("/chat")
+def post_chat_message(req: ChatMessageRequest):
+    text = req.message.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Chat message cannot be empty")
+    new_msgs = engine.post_user_chat(text)
+    return {"status": "success", "new_messages": new_msgs, "state": engine.get_full_state()}
 
 
 @router.websocket("/ws")
@@ -62,7 +75,7 @@ async def society_websocket(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            # Handle incoming WebSocket client commands (pause, play, speed)
+            # Handle incoming WebSocket client commands (pause, play, speed, chat)
             try:
                 msg = json.loads(data)
                 cmd = msg.get("command")
@@ -73,9 +86,14 @@ async def society_websocket(websocket: WebSocket):
                         engine.step_simulation()
                 elif cmd == "speed":
                     engine.speed = int(msg.get("speed", 1))
+                elif cmd == "chat":
+                    chat_text = str(msg.get("text", "")).strip()
+                    if chat_text:
+                        engine.post_user_chat(chat_text)
             except Exception:
                 pass
     except WebSocketDisconnect:
         engine.unregister_websocket(websocket)
     except Exception:
         engine.unregister_websocket(websocket)
+

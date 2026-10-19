@@ -209,6 +209,20 @@ export interface Citizen {
   is_ready?: boolean;
 }
 
+export interface ChatMessage {
+  id: string;
+  sender_id: string;
+  sender_name: string;
+  sender_avatar: string;
+  sender_color: string;
+  sender_algorithm: string;
+  target_id?: string | null;
+  target_name?: string | null;
+  text: string;
+  timestamp: string;
+  topic?: string;
+}
+
 export interface SocietyState {
   type: string;
   tick: number;
@@ -253,7 +267,14 @@ export interface SocietyState {
     text: string;
     category: string;
   }>;
+  chat_messages?: ChatMessage[];
+  active_chat_topic?: {
+    id: string;
+    title: string;
+    description: string;
+  };
 }
 
 export const VERSION = '1.0.0';
+
 

@@ -312,6 +312,15 @@ export const api = {
     return handleResponse(res);
   },
 
+  async sendSocietyChatMessage(message: string): Promise<{ status: string; new_messages: any[]; state: SocietyState }> {
+    const res = await fetch(`${API_BASE}/api/society/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    return handleResponse(res);
+  },
+
   connectSocietyWebSocket(
     onState: (state: SocietyState) => void,
     onOpen?: () => void,

@@ -22,15 +22,27 @@ export const ExperimentsStudio: React.FC<ExperimentsStudioProps> = ({
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [comparisonMatrix, setComparisonMatrix] = useState<ComparisonModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchExperiments = () => {
     setIsLoading(true);
+    setErrorMsg(null);
     api.getExperiments()
       .then((data) => {
-        setExperiments(data.experiments);
-        setComparisonMatrix(data.comparison_matrix);
+        if (data) {
+          setExperiments(Array.isArray(data.experiments) ? data.experiments : []);
+          setComparisonMatrix(Array.isArray(data.comparison_matrix) ? data.comparison_matrix : []);
+        } else {
+          setExperiments([]);
+          setComparisonMatrix([]);
+        }
       })
-      .catch((e) => console.error('Failed to get experiments', e))
+      .catch((e) => {
+        console.error('Failed to get experiments', e);
+        setErrorMsg('Unable to load experiments data.');
+        setExperiments([]);
+        setComparisonMatrix([]);
+      })
       .finally(() => setIsLoading(false));
   };
 
@@ -47,12 +59,46 @@ export const ExperimentsStudio: React.FC<ExperimentsStudioProps> = ({
     }
   };
 
-  // Find top performer by accuracy or r2
-  const topModel = comparisonMatrix.reduce<ComparisonModel | null>((best, cur) => {
-    const curScore = cur.accuracy ?? cur.r2 ?? -1;
-    const bestScore = best ? (best.accuracy ?? best.r2 ?? -1) : -1;
+  // Safe Top Performer calculation
+  const topModel = (comparisonMatrix || []).reduce<ComparisonModel | null>((best, cur) => {
+    if (!cur) return best;
+    const curScore = (typeof cur.accuracy === 'number' && !isNaN(cur.accuracy))
+      ? cur.accuracy
+      : ((typeof cur.r2 === 'number' && !isNaN(cur.r2)) ? cur.r2 : -1);
+    
+    const bestScore = best
+      ? ((typeof best.accuracy === 'number' && !isNaN(best.accuracy))
+          ? best.accuracy
+          : ((typeof best.r2 === 'number' && !isNaN(best.r2)) ? best.r2 : -1))
+      : -1;
+
     return curScore > bestScore ? cur : best;
   }, null);
+
+  // Formatting helpers
+  const formatHyperparams = (hp: any): string => {
+    if (!hp || typeof hp !== 'object') return '—';
+    try {
+      const entries = Object.entries(hp);
+      if (entries.length === 0) return '—';
+      return entries
+        .slice(0, 3)
+        .map(([k, v]) => `${k}:${Array.isArray(v) ? `[${v.join(',')}]` : v}`)
+        .join(', ');
+    } catch {
+      return '—';
+    }
+  };
+
+  const formatTimestamp = (ts: any): string => {
+    if (!ts) return '—';
+    try {
+      const d = new Date(String(ts).replace(' ', 'T'));
+      return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
+    } catch {
+      return String(ts);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '1400px', margin: '0 auto', padding: '24px' }}>
@@ -67,6 +113,12 @@ export const ExperimentsStudio: React.FC<ExperimentsStudioProps> = ({
           Compare performance, training speed, and hyperparameters across up to 10 independent model instances.
         </p>
       </div>
+
+      {errorMsg && (
+        <div className="glass-panel" style={{ padding: '12px 18px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', color: '#fca5a5', borderRadius: '8px', fontSize: '0.85rem' }}>
+          {errorMsg}
+        </div>
+      )}
 
       {/* Top Performer Card if models exist */}
       {topModel && (
@@ -85,14 +137,14 @@ export const ExperimentsStudio: React.FC<ExperimentsStudioProps> = ({
               <Trophy size={13} />
               <span>Workspace Top Performer</span>
             </div>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 800 }}>{topModel.name}</h2>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 800 }}>{topModel.name || 'Top Model'}</h2>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              Algorithm: <strong style={{ color: '#fff' }}>{topModel.model_type.replace('_', ' ')}</strong> on dataset <strong style={{ color: '#fff' }}>{topModel.dataset_name}</strong>
+              Algorithm: <strong style={{ color: '#fff' }}>{(topModel.model_type || '').replace(/_/g, ' ')}</strong> on dataset <strong style={{ color: '#fff' }}>{topModel.dataset_name || 'Dataset'}</strong>
             </p>
           </div>
 
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-            {topModel.accuracy !== undefined && (
+            {typeof topModel.accuracy === 'number' && !isNaN(topModel.accuracy) && (
               <div style={{ textAlign: 'center' }}>
                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Accuracy</span>
                 <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent-emerald)', fontFamily: 'var(--font-mono)' }}>
@@ -100,11 +152,19 @@ export const ExperimentsStudio: React.FC<ExperimentsStudioProps> = ({
                 </div>
               </div>
             )}
-            {topModel.r2 !== undefined && (
+            {typeof topModel.r2 === 'number' && !isNaN(topModel.r2) && (
               <div style={{ textAlign: 'center' }}>
                 <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>R² Score</span>
                 <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent-emerald)', fontFamily: 'var(--font-mono)' }}>
                   {topModel.r2.toFixed(3)}
+                </div>
+              </div>
+            )}
+            {typeof topModel.loss === 'number' && !isNaN(topModel.loss) && (
+              <div style={{ textAlign: 'center' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Loss</span>
+                <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>
+                  {topModel.loss.toFixed(4)}
                 </div>
               </div>
             )}
@@ -137,29 +197,34 @@ export const ExperimentsStudio: React.FC<ExperimentsStudioProps> = ({
               <tbody>
                 {comparisonMatrix.map((m) => {
                   const isTop = topModel?.model_id === m.model_id;
+                  const hasAcc = typeof m.accuracy === 'number' && !isNaN(m.accuracy);
+                  const hasR2 = typeof m.r2 === 'number' && !isNaN(m.r2);
+                  const hasLoss = typeof m.loss === 'number' && !isNaN(m.loss);
+                  const hasMse = typeof m.mse === 'number' && !isNaN(m.mse);
+
                   return (
                     <tr key={m.model_id} style={{ borderBottom: '1px solid var(--border-subtle)', background: isTop ? 'rgba(16, 185, 129, 0.05)' : 'transparent' }}>
                       <td style={{ padding: '10px 14px', fontWeight: 700, color: isTop ? 'var(--accent-emerald)' : 'var(--text-primary)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           {isTop && <Trophy size={14} color="#10b981" />}
-                          <span>{m.name}</span>
+                          <span>{m.name || 'Unnamed Model'}</span>
                         </div>
                       </td>
                       <td style={{ padding: '10px 14px' }}>
-                        <span className="badge badge-violet">{m.model_type.replace('_', ' ')}</span>
+                        <span className="badge badge-violet">{(m.model_type || '').replace(/_/g, ' ')}</span>
                       </td>
-                      <td style={{ padding: '10px 14px' }}>{m.dataset_name}</td>
+                      <td style={{ padding: '10px 14px' }}>{m.dataset_name || '—'}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-cyan)' }}>
-                        {m.accuracy !== undefined ? `${(m.accuracy * 100).toFixed(1)}%` : (m.r2 !== undefined ? `R² ${m.r2.toFixed(3)}` : '—')}
+                        {hasAcc ? `${(m.accuracy! * 100).toFixed(1)}%` : (hasR2 ? `R² ${m.r2!.toFixed(3)}` : '—')}
                       </td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)' }}>
-                        {m.loss !== undefined ? m.loss.toFixed(4) : '—'}
+                        {hasLoss ? m.loss!.toFixed(4) : (hasMse ? `MSE ${m.mse!.toFixed(4)}` : '—')}
                       </td>
                       <td style={{ padding: '10px 14px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                        {m.duration}
+                        {m.duration ?? '—'}
                       </td>
                       <td style={{ padding: '10px 14px', fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                        {Object.entries(m.hyperparameters).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(', ')}
+                        {formatHyperparams(m.hyperparameters)}
                       </td>
                     </tr>
                   );
@@ -193,30 +258,43 @@ export const ExperimentsStudio: React.FC<ExperimentsStudioProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {experiments.map((exp) => (
-                  <tr key={exp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      {new Date(exp.created_at).toLocaleString()}
-                    </td>
-                    <td style={{ padding: '8px 12px', fontWeight: 600 }}>{exp.model_name}</td>
-                    <td style={{ padding: '8px 12px' }}>{exp.dataset_name}</td>
-                    <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>{exp.total_steps}</td>
-                    <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>{exp.duration_seconds}s</td>
-                    <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>
-                      {exp.metrics.accuracy !== undefined ? `Acc: ${(exp.metrics.accuracy * 100).toFixed(1)}%` : (exp.metrics.r2 !== undefined ? `R²: ${exp.metrics.r2.toFixed(3)}` : `Loss: ${exp.metrics.loss}`)}
-                    </td>
-                    <td style={{ padding: '8px 12px' }}>
-                      <button
-                        onClick={() => handleDelete(exp.id)}
-                        className="btn btn-danger"
-                        style={{ padding: '4px', borderRadius: '4px' }}
-                        title="Delete run"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {experiments.map((exp) => {
+                  const m = exp.metrics || {};
+                  const hasAcc = typeof m.accuracy === 'number' && !isNaN(m.accuracy);
+                  const hasR2 = typeof m.r2 === 'number' && !isNaN(m.r2);
+                  const hasLoss = typeof m.loss === 'number' && !isNaN(m.loss);
+
+                  return (
+                    <tr key={exp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        {formatTimestamp(exp.created_at)}
+                      </td>
+                      <td style={{ padding: '8px 12px', fontWeight: 600 }}>{exp.model_name || 'Model'}</td>
+                      <td style={{ padding: '8px 12px' }}>{exp.dataset_name || 'Dataset'}</td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>{exp.total_steps ?? '—'}</td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)' }}>{exp.duration_seconds ?? '—'}s</td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>
+                        {hasAcc 
+                          ? `Acc: ${(m.accuracy! * 100).toFixed(1)}%` 
+                          : (hasR2 
+                              ? `R²: ${m.r2!.toFixed(3)}` 
+                              : (hasLoss 
+                                  ? `Loss: ${m.loss!.toFixed(4)}` 
+                                  : '—'))}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        <button
+                          onClick={() => handleDelete(exp.id)}
+                          className="btn btn-danger"
+                          style={{ padding: '4px', borderRadius: '4px' }}
+                          title="Delete run"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
